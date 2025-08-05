@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from sop_logic import sop_chatbot
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -18,5 +19,7 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-    
+    try:
+        return templates.TemplateResponse("index.html", {"request": request})
+    except Exception as e:
+        return HTMLResponse(content=f"<h1>Template Error:</h1><pre>{e}</pre>", status_code=500)    
