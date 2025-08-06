@@ -3,13 +3,55 @@
 <head>
   <title>SOP Legal AI Assistant</title>
   <!-- Google Analytics -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX"></script>
+  {% raw %}
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-G-X5NL5N7FHV"></script>
   <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){{ dataLayer.push(arguments); }}
-    gtag('js', new Date());
-    gtag('config', 'G-X5NL5N7FHV');
-  </script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){ dataLayer.push(arguments); }
+  gtag('js', new Date());
+  gtag('config', 'G-X5NL5N7FHV');
+</script>
+{% endraw %}
+ <script>
+  let userId = localStorage.getItem("sop_user_id") || null;
+  let sessionState = "start";
+
+  function login() {
+    const u = document.getElementById("username").value;
+    const p = document.getElementById("password").value;
+    const terms = document.getElementById("terms-check").checked;
+    if (!u || !p || !terms) {
+      alert("Please complete all fields and agree to Terms.");
+      return;
+    }
+    userId = "user_" + u;
+    localStorage.setItem("sop_user_id", userId);
+    document.getElementById("auth-section").classList.add("hidden");
+    document.getElementById("chat-section").classList.remove("hidden");
+    sendMessage("hello");
+  }
+
+  function sendMessage(txt = null) {
+    const input = document.getElementById("user-input");
+    const msg = txt || input.value;
+    input.value = "";
+    const chat = document.getElementById("chat-box");
+    chat.innerHTML += `<div><strong>You:</strong> ${msg}</div>`;
+    fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, user_input: msg, session_state: sessionState })
+    })
+    .then(r => r.json())
+    .then(d => {
+      chat.innerHTML += `<div><strong>SOP:</strong> ${d.response}</div>`;
+      if (d.response.includes("Would you like help from a professional"))
+        sessionState = "handover_confirm";
+      chat.scrollTop = chat.scrollHeight;
+    });
+  }
+</script>
   <!-- AdSense -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXX"
      crossorigin="anonymous"></script>
@@ -54,41 +96,47 @@
     </div>
   </main>
   <footer>&copy; 2025 SOP Legal AI Assistant</footer>
-  <script>
-    let userId = localStorage.getItem("sop_user_id") || null;
-    let sessionState = "start";
-    function login() {
-      const u = document.getElementById("username").value;
-      const p = document.getElementById("password").value;
-      const terms = document.getElementById("terms-check").checked;
-      if (!u || !p || !terms) {
-        alert("Please complete all fields and agree to Terms.");
-        return;
-      }
-      userId = "user_" + u;
-      localStorage.setItem("sop_user_id", userId);
-      document.getElementById("auth-section").classList.add("hidden");
-      document.getElementById("chat-section").classList.remove("hidden");
-      sendMessage("hello");
+
+{% raw %}
+<script>
+  let userId = localStorage.getItem("sop_user_id") || null;
+  let sessionState = "start";
+
+  function login() {
+    const u = document.getElementById("username").value;
+    const p = document.getElementById("password").value;
+    const terms = document.getElementById("terms-check").checked;
+    if (!u || !p || !terms) {
+      alert("Please complete all fields and agree to Terms.");
+      return;
     }
-    function sendMessage(txt = null) {
-      const input = document.getElementById("user-input");
-      const msg = txt || input.value;
-      input.value = "";
-      const chat = document.getElementById("chat-box");
-      chat.innerHTML += `<div><strong>You:</strong> ${msg}</div>`;
-      fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, user_input: msg, session_state: sessionState })
-      })
-      .then(r => r.json())
-      .then(d => {
-        chat.innerHTML += `<div><strong>SOP:</strong> ${d.response}</div>`;
-        if (d.response.includes("Would you like help from a professional")) sessionState = "handover_confirm";
-        chat.scrollTop = chat.scrollHeight;
-      });
-    }
-  </script>
+
+    userId = "user_" + u;
+    localStorage.setItem("sop_user_id", userId);
+    document.getElementById("auth-section").classList.add("hidden");
+    document.getElementById("chat-section").classList.remove("hidden");
+    sendMessage("hello");
+  }
+
+  function sendMessage(txt = null) {
+    const input = document.getElementById("user-input");
+    const msg = txt || input.value;
+    input.value = "";
+    const chat = document.getElementById("chat-box");
+    chat.innerHTML += `<div><strong>You:</strong> ${msg}</div>`;
+    fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, user_input: msg, session_state: sessionState })
+    })
+    .then(r => r.json())
+    .then(d => {
+      chat.innerHTML += `<div><strong>SOP:</strong> ${d.response}</div>`;
+      if (d.response.includes("Would you like help from a professional")) sessionState = "handover_confirm";
+      chat.scrollTop = chat.scrollHeight;
+    });
+  }
+</script>
+{% endraw %}
 </body>
 </html>
