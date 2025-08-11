@@ -1,14 +1,11 @@
 # sop_logic.py
 
 import os
-import smtplib
-from email.mime.text import MIMEText
-from openai import OpenAI
 
-# Load OpenAI API key
-with open("openai_key.txt", "r") as f:
-    OPENAI_API_KEY = f.read().strip()
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable not set")
 client = OpenAI(api_key=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)
 
 # In-memory session store
