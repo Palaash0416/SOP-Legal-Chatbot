@@ -1,25 +1,14 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
-from sop_logic import sop_chatbot
 
 app = FastAPI()
+
+# Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-class ChatRequest(BaseModel):
-    user_id: str
-    user_input: str
-    session_state: str
 
-@app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    return {"response": sop_chatbot(request.user_id, request.user_input, request.session_state)}
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_home(request: Request):
-    try:
-        return templates.TemplateResponse("index.html", {"request": request})
-    except Exception as e:
-        return HTMLResponse(content=f"<h1>Template Error:</h1><pre>{e}</pre>", status_code=500)    
+# Canonical URL
+@app.get("/terms-and-privacy")
+async def terms_and_privacy():
+    # Redirect to the static PDF
+    return RedirectResponse(url="/static/terms/SOP_Legal_AI_Assistant_Terms_and_Privacy.pdf", status_code=302)
