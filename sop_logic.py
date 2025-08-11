@@ -1,13 +1,15 @@
 # sop_logic.py
 
+from openai import OpenAI
 import os
 
+# Read the API key from environment variables instead of a file or hardcoding
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable not set")
-client = OpenAI(api_key=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)
 
+# Create OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
 # In-memory session store
 sessions = {}
 
