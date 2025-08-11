@@ -9,7 +9,7 @@ from openai import OpenAI
 with open("openai_key.txt", "r") as f:
     OPENAI_API_KEY = f.read().strip()
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=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)
 
 # In-memory session store
 sessions = {}
