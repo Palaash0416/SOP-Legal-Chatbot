@@ -1,96 +1,93 @@
+# sop_logic.py
+
 import os
 import smtplib
 from email.mime.text import MIMEText
-from typing import Dict
+from openai import OpenAI
 
-# Simulated session memory (for demo — replace with DB for production)
-user_sessions: Dict[str, Dict] = {}
+# Load OpenAI API key
+with open("openai_key.txt", "r") as f:
+    OPENAI_API_KEY = f.read().strip()
 
-# List of available legal documents (must match actual file names in /static/)
-available_documents = {
-    "rent agreement", "sale agreement", "gift deed", "will",
-    "affidavit", "power of attorney", "divorce petition",
-    "lease deed", "consumer complaint", "non-disclosure agreement",
-    "adoption agreement", "name change affidavit", "memorandum of understanding",
-    "indemnity bond", "employment agreement", "freelance contract",
-    "domestic violence petition", "general affidavit", "rti application"
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# In-memory session store
+sessions = {}
+
+# Your legal documents library
+LEGAL_DOCS = {
+    "sale agreement": "https://drive.google.com/file/d/SALE_DOC_ID/view?usp=sharing",
+    "rent agreement": "https://drive.google.com/file/d/RENT_DOC_ID/view?usp=sharing",
+    "gift deed": "https://drive.google.com/file/d/GIFT_DOC_ID/view?usp=sharing",
+    "nda": "https://drive.google.com/file/d/NDA_DOC_ID/view?usp=sharing",
+    "will": "https://drive.google.com/file/d/WILL_DOC_ID/view?usp=sharing",
+    "affidavit": "https://drive.google.com/file/d/AFFIDAVIT_DOC_ID/view?usp=sharing",
+    "power of attorney": "https://drive.google.com/file/d/POA_DOC_ID/view?usp=sharing",
+    "adoption deed": "https://drive.google.com/file/d/ADOPTION_DOC_ID/view?usp=sharing",
+    "divorce petition": "https://drive.google.com/file/d/DIVORCE_DOC_ID/view?usp=sharing",
+    "consumer complaint": "https://drive.google.com/file/d/CONSUMER_DOC_ID/view?usp=sharing",
+    "rti application": "https://drive.google.com/file/d/RTI_DOC_ID/view?usp=sharing"
 }
 
-# Email configuration for handoff
-EMAIL_USER = "sop.bot.help@gmail.com"
-EMAIL_PASS = "mmqs jjuv uhwm gmvy"
-HUMAN_NOTIFY_EMAIL = "palaashjain@sopinternationalllc.co.in"
+# Email for human handoff
+HUMAN_EMAIL = "palaashjain@sopinternationalllc.co.in"
 
-def send_email_notification(subject, body):
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_USER
-    msg["To"] = HUMAN_NOTIFY_EMAIL
-
+def send_handoff_email(user_id, query):
+    """Send email to notify human professional"""
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_USER, EMAIL_PASS)
+        msg = MIMEText(f"User ID: {user_id}\n\nQuery: {query}\n\nPlease take over this conversation.")
+        msg["Subject"] = "SOP Legal AI Assistant - Human Handoff Required"
+        msg["From"] = "noreply@sopinternationalllc.co.in"
+        msg["To"] = HUMAN_EMAIL
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS"))
             server.send_message(msg)
-        return True
     except Exception as e:
-        print(f"Email send failed: {e}")
-        return False
+        print(f"[Email Error] {e}")
 
-def sop_chatbot(user_id: str, user_input: str, session_state: str) -> str:
-    user_input = user_input.lower().strip()
-    session = user_sessions.setdefault(user_id, {"state": "start", "history": []})
-    session["history"].append(user_input)
+def sop_chatbot(user_id, user_input, session_state):
+    """Main SOP Legal AI Assistant chatbot logic"""
+    if user_id not in sessions:
+        sessions[user_id] = {"state": "start", "history": []}
 
-    # Handle resumption of human chat
-    if session["state"] == "human_waiting":
-        if "yes" in user_input:
-            send_email_notification("Returning user needs human help", f"User {user_id} wants to resume the chat.\nPrevious conversation:\n" + "\n".join(session["history"]))
-            return "Welcome back. We've notified a legal professional to resume your conversation shortly."
-        else:
-            session["state"] = "start"
-            return "Alright. Let us know whenever you need help."
+    session = sessions[user_id]
+    user_input = user_input.strip()
 
-    # Start greeting
-    if session["state"] == "start":
+    # Initial greeting
+    if session["state"] == "start" or not user_input:
         session["state"] = "chatting"
-        return "Hey, I’m SOP. How may I help you today?"
+        return "Hey, I’m SOP, your personal AI legal assistant. How may I help you today?"
 
-    # RTI-specific logic
-    if "rti" in user_input and "application" in user_input:
-        return "Here is a sample RTI Application you can use:\nhttps://www.soplegalaiassistant.co.in/static/Sample%20RTI%20Application.pdf"
-    if "rti" in user_input:
-        return "Yes, I can assist with RTI-related queries under Indian law. Please share your question."
+    # Save history for persistence
+    session["history"].append({"role": "user", "content": user_input})
 
-    # Document access
-    if any(word in user_input for word in ["document", "agreement", "form", "affidavit", "petition", "deed"]):
-        for doc in available_documents:
-            if doc in user_input:
-                # Convert doc name to file-safe format
-                filename = "Sample " + doc.title().replace("Non-Disclosure", "Non-Disclosure Agreement").replace(" ", "%20") + ".pdf"
-                link = f"https://www.soplegalaiassistant.co.in/static/{filename}"
-                return f"Here is your requested document:\n{link}"
-        session["state"] = "confirm_handoff"
-        return "Sorry, I can’t help you with that document but I surely can connect you with a professional. Would you like that?"
+    # Check if user asked for a legal document
+    for doc_name, doc_link in LEGAL_DOCS.items():
+        if doc_name in user_input.lower():
+            return f"Here’s the {doc_name.title()} template you requested:\n{doc_link}"
 
-    # Professional help escalation
-    if session["state"] == "confirm_handoff":
-        if any(x in user_input for x in ["yes", "ok", "sure", "please", "yep"]):
-            send_email_notification("New Human Handoff Request", f"User {user_id} has requested human help.\nConversation so far:\n" + "\n".join(session["history"]))
-            session["state"] = "human_waiting"
-            return "Let’s help you find the suitable professional for your problem. A team member will reach out shortly."
-        else:
-            session["state"] = "chatting"
-            return "Alright. Let me know if you need help with anything else."
+    # Handle unavailable document request
+    if "agreement" in user_input.lower() or "deed" in user_input.lower():
+        send_handoff_email(user_id, user_input)
+        return "I don’t have that exact document in my library. I’ve alerted a legal professional who will assist you shortly."
 
-    # Legal inquiry fallback
-    if any(word in user_input for word in ["ipc", "section", "act", "law", "legal", "court", "bail", "contract", "property", "penal"]):
-        session["state"] = "confirm_handoff"
-        return "Would you like help from a legal professional regarding this?"
+    # GPT-powered legal Q&A
+    try:
+        messages = [{"role": "system", "content": "You are SOP, a polite and professional Indian legal AI assistant. Provide accurate legal help under Indian law. Keep it simple and user-friendly."}]
+        messages.extend(session["history"])
 
-    # Exit / End chat
-    if any(x in user_input for x in ["bye", "thank you", "exit", "no thanks", "that's all"]):
-        session["state"] = "start"
-        return "It was nice talking to you. We hope to see you again soon."
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.2
+        )
 
-    # Default fallback
-    return "Please let me know if you need a legal document, legal help, or RTI assistance."
+        bot_reply = response.choices[0].message.content
+        session["history"].append({"role": "assistant", "content": bot_reply})
+        return bot_reply
+
+    except Exception as e:
+        print(f"[GPT Error] {e}")
+        return "I’m having trouble accessing my legal database right now. Please try again in a moment."
