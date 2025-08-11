@@ -1,22 +1,21 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# main.py
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+from sop_logic import sop_chatbot
 
 app = FastAPI()
 
-# Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+class ChatRequest(BaseModel):
+    user_id: str
+    user_input: str
+    session_state: str
 
-# Set up templates
-templates = Jinja2Templates(directory="templates")
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    reply = sop_chatbot(request.user_id, request.user_input, request.session_state)
+    return {"response": reply}
 
-# Root route to serve chatbot page
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-# Terms and Privacy route
-@app.get("/terms-and-privacy")
-async def terms_and_privacy():
-    return RedirectResponse(url="/static/terms/SOP_Legal_AI_Assistant_Terms_and_Privacy.pdf", status_code=302)
+@app.get("/")
+async def root():
+    return {"message": "SOP Legal AI Assistant is live."}
