@@ -9,7 +9,7 @@ app = FastAPI()
 # Enable CORS for Framer (replace "*" with your Framer domain for more security)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Example: ["https://sopai.framer.website"]
+    allow_origins=["https://sopai.framer.website"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
