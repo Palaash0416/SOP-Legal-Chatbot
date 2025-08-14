@@ -1,40 +1,41 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from sop_logic import sop_chatbot  # Your chatbot logic
+from sop_logic import sop_chatbot
 from fastapi.middleware.cors import CORSMiddleware
 
 # Create FastAPI app
 app = FastAPI()
 
-# Enable CORS for Framer (replace "*" with your Framer domain for more security)
+# ✅ Allow CORS so Framer can call the API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://sopai.framer.website"],  
+    allow_origins=["*"],  # You can change this to ["https://sopai.framer.website"] for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic model for incoming chat request
+# ✅ Request model
 class ChatRequest(BaseModel):
     user_id: str
     user_input: str
     session_state: str
 
-# Root GET endpoint to confirm server is live
+# ✅ Health check route (GET)
 @app.get("/")
-async def home():
+def root():
     return {"message": "SOP Legal AI Assistant is live."}
 
-# GET handler for /chat to avoid 'Method Not Allowed' in browser
-@app.get("/chat")
-async def chat_info():
-    return {
-        "message": "Chat endpoint is working. Please send a POST request with user_id, user_input, and session_state."
-    }
-
-# POST handler for chatbot requests
+# ✅ Chat endpoint (POST)
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    reply = sop_chatbot(request.user_id, request.user_input, request.session_state)
-    return {"response": reply}
+def chat_endpoint(request: ChatRequest):
+    try:
+        reply = sop_chatbot(request.user_id, request.user_input, request.session_state)
+        return {"response": reply}
+    except Exception as e:
+        return {"error": str(e)}
+
+# ✅ Optional: Catch wrong HTTP method
+@app.get("/chat")
+def chat_wrong_method():
+    return {"error": "This endpoint only supports POST requests. Please use POST method."}
