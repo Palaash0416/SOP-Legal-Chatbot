@@ -1,31 +1,42 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Dict
-from sop_logic import sop_chatbot
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+# If you serve static PDFs:
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Store session data in memory
-session_greeted: Dict[str, bool] = {}
+# ✅ Allow Framer & your production domain
+ALLOWED_ORIGINS = [
+    "https://sopai.framer.website",                 # your Framer preview/published domain
+    "https://www.soplegalaiassistant.co.in",        # your prod domain (when you point it)
+    "https://soplegalaiassistant.co.in",
+    "http://localhost:5173",                        # optional local dev
+    "http://localhost:3000",
+]
 
-class ChatRequest(BaseModel):
-    user_id: str
-    user_input: str
-    session_state: str
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():
     return {"message": "SOP Legal AI Assistant is live."}
 
+from pydantic import BaseModel
+from sop_logic import sop_chatbot
+
+class ChatRequest(BaseModel):
+    user_id: str
+    user_input: str
+    session_state: str | None = None
+
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    global session_greeted
-
-    # First message in session → Send greeting
-    if request.user_id not in session_greeted:
-        session_greeted[request.user_id] = True
-        return {"response": "👋 Hey! I’m SOP — your personal AI legal assistant. How may I help you today?"}
-
-    # All other messages → Normal chatbot response
-    reply = sop_chatbot(request.user_id, request.user_input, request.session_state)
-    return {"response": reply}
+async def chat_endpoint(payload: ChatRequest):
+    reply = sop_chatbot(payload.user_id, payload.user_input, payload.session_state or "start")
+    return JSONResponse({"response": reply})
