@@ -7,6 +7,19 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ---- Quick Redis connectivity check route ----
+@app.get("/redis/ping")
+async def redis_ping():
+    try:
+        r = getattr(app.state, "redis", None)
+        if not r:
+            # Redis limiter not initialized (no REDIS_URL or failed connect)
+            return {"ok": False, "error": "not_initialized"}
+        pong = await r.ping()
+        return {"ok": bool(pong), "pong": bool(pong)}
+    except Exception as e:
+        return {"ok": False, "error": repr(e)}
+
 # ✅ Allow Framer & your production domains
 ALLOWED_ORIGINS = [
     "https://sopai.framer.website",             # your Framer preview/published domain
