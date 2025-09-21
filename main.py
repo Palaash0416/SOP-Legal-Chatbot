@@ -112,7 +112,7 @@ app.add_middleware(
 # =========================
 # Minimal in-memory user store (replace with your DB in prod)
 # =========================
-USERS: dict[str, dict] = {}  # { email: {"password": "...", other fields...} }
+USERS: dict[str, dict] = {}  # { email: {"password": "...", ...} }
 
 def norm_email(s: str | None) -> str:
     return (s or "").strip().lower()
@@ -159,10 +159,6 @@ class SignupStart(BaseModel):
     whatsapp: str | None = None
     password: str
 
-class SignupVerify(BaseModel):
-    email: EmailStr
-    otp: str
-
 # =========================
 # Routes
 # =========================
@@ -185,14 +181,14 @@ def redis_ping():
     except Exception as e:
         return {"ok": False, "detail": str(e)}
 
-# ---- Chat passthrough (you already have sop_logic.py)
+# ---- Chat passthrough (calls your existing sop_logic)
 from sop_logic import sop_chatbot
 @app.post("/chat")
 def chat_endpoint(payload: ChatRequest):
     reply = sop_chatbot(payload.user_id, payload.user_input, payload.session_state or "start")
     return JSONResponse({"response": reply})
 
-# ---- LOGIN (password check + OTP)
+# ---- LOGIN (password check ➜ OTP)
 @app.post("/auth/login/start")
 def auth_login_start(body: LoginStart):
     email = norm_email(body.email or body.username)
@@ -229,15 +225,14 @@ def auth_login_resend(body: LoginVerify):
     send_email_otp(email, code, "login")
     return {"ok": True}
 
-# ---- FORGOT PASSWORD
+# ---- FORGOT PASSWORD (require existing user)
 @app.post("/auth/forgot/start")
 def auth_forgot_start(body: ForgotStart):
     email = norm_email(body.email or body.username)
     if not email:
         raise HTTPException(status_code=422, detail="email is required")
-    # allow create-via-reset or require existing user by uncommenting:
-    # if email not in USERS:
-    #     raise HTTPException(status_code=404, detail="No user")
+    if email not in USERS:
+        raise HTTPException(status_code=404, detail="No user")
     kv_setex(f"otp:forgot:{email}:newpass", OTP_TTL, body.new_password)
     code = gen_otp()
     kv_setex(f"otp:forgot:{email}", OTP_TTL, code)
@@ -260,7 +255,7 @@ def auth_forgot_confirm(body: ForgotConfirm):
     kv_del(f"otp:forgot:{email}:newpass")
     return {"ok": True}
 
-# ---- SIGN UP
+# ---- SIGN UP (no OTP)
 @app.post("/auth/signup/start")
 def auth_signup_start(body: SignupStart):
     email = norm_email(body.email)
@@ -274,45 +269,27 @@ def auth_signup_start(body: SignupStart):
             _ = datetime(int(y), int(m), int(d))
         except Exception:
             raise HTTPException(status_code=422, detail="birth_date must be dd/mm/yyyy")
-    import json
-    kv_setex(f"signup:data:{email}", OTP_TTL, json.dumps(body.dict()))
-    code = gen_otp()
-    kv_setex(f"otp:signup:{email}", OTP_TTL, code)
-    send_email_otp(email, code, "sign up")
-    return {"step": "otp_required"}
-
-@app.post("/auth/signup/verify")
-def auth_signup_verify(body: SignupVerify):
-    email = norm_email(body.email)
-    code = kv_get(f"otp:signup:{email}")
-    if not code:
-        raise HTTPException(status_code=400, detail="no_pending_signup")
-    if code != body.otp:
-        raise HTTPException(status_code=400, detail="otp_invalid")
-    import json
-    raw = kv_get(f"signup:data:{email}")
-    if not raw:
-        raise HTTPException(status_code=400, detail="missing_signup_data")
-    data = json.loads(raw)
     USERS[email] = {
-        "password": data["password"],
-        "name": data.get("name"),
-        "gender": data.get("gender"),
-        "birth_date": data.get("birth_date"),
-        "phone": data.get("phone"),
-        "whatsapp": data.get("whatsapp"),
+        "password": body.password,  # TODO: hash in prod
+        "name": body.name,
+        "gender": body.gender,
+        "birth_date": body.birth_date,
+        "phone": body.phone,
+        "whatsapp": body.whatsapp,
         "created_at": datetime.utcnow().isoformat(),
     }
-    kv_del(f"otp:signup:{email}")
-    kv_del(f"signup:data:{email}")
     return {"ok": True}
 
+# Optional: block old signup verify/resend if accidentally called
+@app.post("/auth/signup/verify")
+def auth_signup_verify_disabled():
+    raise HTTPException(status_code=410, detail="signup_verify_disabled")
+
 @app.post("/auth/signup/resend")
-def auth_signup_resend(body: SignupVerify):
-    email = norm_email(body.email)
-    if not email:
-        raise HTTPException(status_code=422, detail="email is required")
-    code = gen_otp()
-    kv_setex(f"otp:signup:{email}", OTP_TTL, code)
-    send_email_otp(email, code, "sign up")
-    return {"ok": True}
+def auth_signup_resend_disabled():
+    raise HTTPException(status_code=410, detail="signup_resend_disabled")
+
+# Local run convenience (Render uses Start Command)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
