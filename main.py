@@ -10,25 +10,42 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
-# =========================================================
-# Static files (serves /static/*) and constants
-# =========================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-TERMS_PDF = os.path.join(STATIC_DIR, "terms-privacy.pdf")
+# ===== Static files (serves /static/*) =====
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
 
-app = FastAPI()
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+TERMS_PDF = STATIC_DIR / "terms-privacy.pdf"
 
-# Mount /static (do this once)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Mount /static once (remove any other app.mount("/static", ...) in this file)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Optional direct route for Terms & Privacy (stable URL)
+# Stable route to open the Terms & Privacy PDF directly
 @app.get("/terms", include_in_schema=False)
 def terms_pdf():
-    if os.path.exists(TERMS_PDF):
-        return FileResponse(TERMS_PDF, media_type="application/pdf")
-    raise HTTPException(status_code=404, detail="terms_pdf_not_found")
-
+    if TERMS_PDF.is_file():
+        return FileResponse(
+            str(TERMS_PDF),
+            media_type="application/pdf",
+            filename="terms-privacy.pdf",
+        )
+    # Helpful 404: list what the server actually has
+    files = [
+        str(p.relative_to(STATIC_DIR))
+        for p in STATIC_DIR.glob("**/*")
+        if p.is_file()
+    ]
+    raise HTTPException(
+        status_code=404,
+        detail={
+            "error": "terms_pdf_not_found",
+            "expected": "static/terms-privacy.pdf",
+            "found_files": files,
+        },
+    )
 # =========================================================
 # CORS
 # =========================================================
