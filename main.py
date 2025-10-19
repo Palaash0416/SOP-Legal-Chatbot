@@ -1,32 +1,69 @@
+# main.py
 import os
 import random
 import string
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
-# =========================
-# Optional: Key Value (Redis/Valkey) for OTP storage
-# =========================
+# =========================================================
+# Static files (serves /static/*) and constants
+# =========================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TERMS_PDF = os.path.join(STATIC_DIR, "terms-privacy.pdf")
+
+app = FastAPI()
+
+# Mount /static (do this once)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Optional direct route for Terms & Privacy (stable URL)
+@app.get("/terms", include_in_schema=False)
+def terms_pdf():
+    if os.path.exists(TERMS_PDF):
+        return FileResponse(TERMS_PDF, media_type="application/pdf")
+    raise HTTPException(status_code=404, detail="terms_pdf_not_found")
+
+# =========================================================
+# CORS
+# =========================================================
+ALLOWED_ORIGINS = [
+    "https://sopai.framer.website",     # Framer preview domain
+    "http://localhost:5173",            # local dev (Vite)
+    "http://localhost:3000",            # local dev (Next/CRA)
+    # Add your production domains here when ready:
+    # "https://yourdomain.com",
+    # "https://www.yourdomain.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# =========================================================
+# Optional: Redis/Valkey as a KV store for OTPs; in-memory fallback
+# =========================================================
 _redis = None
+
 def _get_kv():
     """Return Redis client if KV_URL/REDIS_URL/REDISS_URL is set and reachable; else None."""
     global _redis
     if _redis is not None:
         return _redis
-    url = (
-        os.getenv("KV_URL")
-        or os.getenv("REDIS_URL")
-        or os.getenv("REDISS_URL")
-    )
+    url = os.getenv("KV_URL") or os.getenv("REDIS_URL") or os.getenv("REDISS_URL")
     if not url:
         return None
     try:
-        import redis  # pip install redis>=4
+        import redis  # requires redis>=4 in requirements.txt
         _redis = redis.Redis.from_url(url, decode_responses=True, ssl=url.startswith("rediss://"))
         _redis.ping()
         return _redis
@@ -34,9 +71,12 @@ def _get_kv():
         print("KV disabled (could not connect):", e)
         return None
 
-_mem_store: dict[str, tuple[str, datetime]] = {}
+# in-memory fallback for demo/dev
+_mem_store: dict = {}
+
 def mem_setex(key: str, ttl_seconds: int, value: str):
     _mem_store[key] = (value, datetime.utcnow() + timedelta(seconds=ttl_seconds))
+
 def mem_get(key: str):
     row = _mem_store.get(key)
     if not row:
@@ -46,23 +86,28 @@ def mem_get(key: str):
         _mem_store.pop(key, None)
         return None
     return value
+
 def mem_del(key: str):
     _mem_store.pop(key, None)
 
 def kv_setex(key: str, ttl_seconds: int, value: str):
     kv = _get_kv()
-    if kv: kv.setex(key, ttl_seconds, value)
-    else:   mem_setex(key, ttl_seconds, value)
+    if kv:
+        kv.setex(key, ttl_seconds, value)
+    else:
+        mem_setex(key, ttl_seconds, value)
+
 def kv_get(key: str):
     kv = _get_kv()
     return kv.get(key) if kv else mem_get(key)
+
 def kv_del(key: str):
     kv = _get_kv()
     kv.delete(key) if kv else mem_del(key)
 
-# =========================
-# Optional: SMTP email (or log OTPs to console if not configured)
-# =========================
+# =========================================================
+# Email (OTP sender) — uses SMTP if env vars are set; otherwise logs OTP
+# =========================================================
 def send_email_otp(to_email: str, otp: str, purpose: str):
     host = os.getenv("EMAIL_SMTP_HOST")
     port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
@@ -83,36 +128,16 @@ def send_email_otp(to_email: str, otp: str, purpose: str):
     msg["To"] = to_email
     msg.set_content(f"Your OTP is {otp}. It will expire in 10 minutes.")
     with smtplib.SMTP(host, port) as s:
-        if starttls: s.starttls()
+        if starttls:
+            s.starttls()
         s.login(user, pwd)
         s.send_message(msg)
     print(f"[SMTP] OTP sent to {to_email} for {purpose}")
 
-# =========================
-# App, Static & CORS
-# =========================
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-ALLOWED_ORIGINS = [
-    "https://sopai.framer.website",
-    "https://soplegalassistant.co.in",
-    "https://soplegalaiassistant.co.in",
-    "http://localhost:5173",
-    "http://localhost:3000",
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# =========================
-# Minimal in-memory user store (replace with your DB in prod)
-# =========================
-USERS: dict[str, dict] = {}  # { email: {"password": "...", ...} }
+# =========================================================
+# In-memory users (replace with DB in production)
+# =========================================================
+USERS: dict = {}  # { email: {"password": "...", "name": "...", ...} }
 
 def norm_email(s: str | None) -> str:
     return (s or "").strip().lower()
@@ -120,11 +145,11 @@ def norm_email(s: str | None) -> str:
 def gen_otp(n: int = 6) -> str:
     return "".join(random.choices(string.digits, k=n))
 
-OTP_TTL = 600  # 10 min
+OTP_TTL = 600  # 10 minutes
 
-# =========================
-# Schemas
-# =========================
+# =========================================================
+# Schemas (Pydantic v2)
+# =========================================================
 class ChatRequest(BaseModel):
     user_id: str
     user_input: str
@@ -151,17 +176,19 @@ class ForgotConfirm(BaseModel):
     otp: str
 
 class SignupStart(BaseModel):
+    # Accept both "birth_date" and "birthdate" from the frontend
+    model_config = ConfigDict(populate_by_name=True)
     name: str
     gender: str | None = None
-    birth_date: str | None = None  # dd/mm/yyyy
+    birth_date: str | None = Field(default=None, alias="birthdate")  # dd/mm/yyyy
     email: EmailStr
     phone: str | None = None
     whatsapp: str | None = None
     password: str
 
-# =========================
-# Routes
-# =========================
+# =========================================================
+# Basic routes
+# =========================================================
 @app.get("/")
 def root():
     return {"message": "SOP Legal AI Assistant is live."}
@@ -181,14 +208,30 @@ def redis_ping():
     except Exception as e:
         return {"ok": False, "detail": str(e)}
 
-# ---- Chat passthrough (calls your existing sop_logic)
+# =========================================================
+# Chat (delegates to your sop_logic.py)
+# =========================================================
 from sop_logic import sop_chatbot
-@app.post("/chat")
-def chat_endpoint(payload: ChatRequest):
-    reply = sop_chatbot(payload.user_id, payload.user_input, payload.session_state or "start")
-    return JSONResponse({"response": reply})
 
-# ---- LOGIN (password check ➜ OTP)
+@app.post("/chat")
+def chat_endpoint(payload: ChatRequest, request: Request):
+    try:
+        reply = sop_chatbot(payload.user_id, payload.user_input, payload.session_state or "start")
+        return JSONResponse({"response": reply})
+    except Exception as e:
+        # Log the actual error but keep a friendly client message
+        import traceback, sys
+        print("\n[CHAT ERROR] --------------------------", file=sys.stderr)
+        traceback.print_exc()
+        print("--------------------------------------\n", file=sys.stderr)
+        return JSONResponse(
+            {"response": "I’m having trouble accessing my legal database right now. Please try again in a moment."},
+            status_code=200,
+        )
+
+# =========================================================
+# Auth — Login (password ➜ email OTP)
+# =========================================================
 @app.post("/auth/login/start")
 def auth_login_start(body: LoginStart):
     email = norm_email(body.email or body.username)
@@ -197,7 +240,7 @@ def auth_login_start(body: LoginStart):
     user = USERS.get(email)
     if not user:
         raise HTTPException(status_code=404, detail="No user")
-    if user.get("password") != body.password:  # replace with hash verify in prod
+    if user.get("password") != body.password:  # TODO: use hashed passwords in production
         raise HTTPException(status_code=401, detail="invalid password")
     code = gen_otp()
     kv_setex(f"otp:login:{email}", OTP_TTL, code)
@@ -225,7 +268,9 @@ def auth_login_resend(body: LoginVerify):
     send_email_otp(email, code, "login")
     return {"ok": True}
 
-# ---- FORGOT PASSWORD (require existing user)
+# =========================================================
+# Auth — Forgot password (email OTP + confirm)
+# =========================================================
 @app.post("/auth/forgot/start")
 def auth_forgot_start(body: ForgotStart):
     email = norm_email(body.email or body.username)
@@ -255,7 +300,9 @@ def auth_forgot_confirm(body: ForgotConfirm):
     kv_del(f"otp:forgot:{email}:newpass")
     return {"ok": True}
 
-# ---- SIGN UP (no OTP)
+# =========================================================
+# Auth — Sign up (no OTP — immediate create)
+# =========================================================
 @app.post("/auth/signup/start")
 def auth_signup_start(body: SignupStart):
     email = norm_email(body.email)
@@ -263,14 +310,17 @@ def auth_signup_start(body: SignupStart):
         raise HTTPException(status_code=422, detail="email is required")
     if email in USERS:
         raise HTTPException(status_code=409, detail="exists")
+
+    # Validate dd/mm/yyyy if provided
     if body.birth_date:
         try:
             d, m, y = body.birth_date.split("/")
             _ = datetime(int(y), int(m), int(d))
         except Exception:
             raise HTTPException(status_code=422, detail="birth_date must be dd/mm/yyyy")
+
     USERS[email] = {
-        "password": body.password,  # TODO: hash in prod
+        "password": body.password,  # TODO: store a password hash in production
         "name": body.name,
         "gender": body.gender,
         "birth_date": body.birth_date,
@@ -280,7 +330,7 @@ def auth_signup_start(body: SignupStart):
     }
     return {"ok": True}
 
-# Optional: block old signup verify/resend if accidentally called
+# (Intentionally disabled; present to avoid accidental calls from old UIs)
 @app.post("/auth/signup/verify")
 def auth_signup_verify_disabled():
     raise HTTPException(status_code=410, detail="signup_verify_disabled")
@@ -289,7 +339,9 @@ def auth_signup_verify_disabled():
 def auth_signup_resend_disabled():
     raise HTTPException(status_code=410, detail="signup_resend_disabled")
 
-# Local run convenience (Render uses Start Command)
+# =========================================================
+# Local run (Render uses Start Command)
+# =========================================================
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
